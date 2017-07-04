@@ -2,19 +2,21 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-
-	"golang.org/x/net/http2"
+	"time"
 
 	"github.com/arthurkiller/perfm"
+
+	"golang.org/x/net/http2"
 )
 
 func ErrLog(args ...interface{}) {
-	var errargs []interface{} = []interface{}{"[E]"}
+	var errargs []interface{} = []interface{}{"\033[31m[E]\033[0m"}
 	errargs = append(errargs, args...)
 	log.Println(errargs...)
 	os.Exit(0)
@@ -22,31 +24,31 @@ func ErrLog(args ...interface{}) {
 
 func main() {
 	var header, host, method, payload string
-	var thread, connection, delay int
+	var thread, delay, timeout int
 	var ssl, sessionResume, falseStart, keepAlive, compression, h2 bool
 	var err error
 
 	flag.StringVar(&header, "H", "", "set for the request header")
-	flag.StringVar(&host, "h", "", "set the server host")
+	flag.StringVar(&host, "host", "", "set the server host")
 	flag.StringVar(&method, "X", "GET", "request method")
 	flag.StringVar(&payload, "D", "", "request payload")
-	flag.IntVar(&thread, "t", 1, "set for the concurrence when benchmark run")
-	flag.IntVar(&connection, "c", 1, "set for the connection for each worker")
-	flag.IntVar(&delay, "d", 10, "set for the benchmark delay")
+	flag.IntVar(&thread, "N", 1, "set for the concurrence worker when benchmark run the job")
+	flag.IntVar(&delay, "duration", 10, "set for the benchmark delay")
+	flag.IntVar(&timeout, "timeout", 0, "set timeout for each request with second. Default is no timeout")
 
-	flag.BoolVar(&keepAlive, "keepalive", false, "enable the ssl for http")
-	flag.BoolVar(&compression, "compress", true, "enable the ssl for http")
-	flag.BoolVar(&h2, "http2", false, "enable the ssl for http")
-	flag.BoolVar(&ssl, "https", true, "enable the ssl for http")
+	flag.BoolVar(&keepAlive, "keepalive", false, "keep tcp connection alive")
+	flag.BoolVar(&compression, "compress", false, "enable haeder compress")
+	flag.BoolVar(&h2, "http2", false, "use http/2 for benchmark")
+	flag.BoolVar(&ssl, "ssl", true, "enable the ssl")
 	flag.BoolVar(&sessionResume, "session", true, "enable the session resumption in ssl handshake")
-	flag.BoolVar(&falseStart, "alpn", true, "enable ssl false start via alpn")
+	flag.BoolVar(&falseStart, "alpn", false, "enable ssl false start via alpn")
 	flag.Parse()
 	if !flag.Parsed() {
 		flag.Usage()
 		os.Exit(0)
 	}
 
-	if connection < 0 || thread < 0 || delay < 0 || host == "" {
+	if thread < 0 || delay < 0 || host == "" {
 		ErrLog("argument invalid")
 	}
 
@@ -76,14 +78,15 @@ func main() {
 	var tlscfg *tls.Config
 	if ssl {
 		tlscfg = &tls.Config{
-			ServerName:         strings.Split(host, "://")[1],
-			ClientSessionCache: tls.NewLRUClientSessionCache(4096),
-			Renegotiation:      tls.RenegotiateFreelyAsClient,
+			ServerName: strings.Split(host, "://")[1],
+			//Renegotiation: tls.RenegotiateNever,
 		}
 		if falseStart {
-			tlscfg.NextProtos = []string{"h2", "http/1.1"} // http 2 support for alpn
+			tlscfg.NextProtos = []string{"http/1.1", "h2"} // http 2 support for alpn
 		}
-		if !sessionResume {
+		if sessionResume {
+			tlscfg.ClientSessionCache = tls.NewLRUClientSessionCache(128)
+		} else {
 			tlscfg.SessionTicketsDisabled = true
 		}
 	}
@@ -103,16 +106,29 @@ func main() {
 	}
 
 	var client *http.Client
+	if timeout > 0 {
+		client.Timeout = time.Second * time.Duration(timeout)
+	}
+
 	if h2 {
-		client = &http.Client{Transport: tr}
+		client = &http.Client{
+			Transport: tr2,
+		}
 	} else {
-		client = &http.Client{Transport: tr2}
+		client = &http.Client{
+			Transport: tr,
+		}
 	}
 
 	perf := perfm.New(perfm.WithBinsNumber(15))
 
+	var errCode error = errors.New("!")
+
 	perf.Registe(func() (err error) {
-		_, err = client.Do(req)
+		resp, err := client.Do(req)
+		if resp.StatusCode > 400 {
+			return errCode
+		}
 		return
 	})
 
