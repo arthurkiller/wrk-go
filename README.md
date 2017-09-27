@@ -1,5 +1,5 @@
 # wrk-go
-A wrk written in go
+A wrk written in go [![Build Status](https://travis-ci.org/arthurkiller/wrk-go.svg?branch=master)](https://travis-ci.org/arthurkiller/wrk-go) [![Go Report Card](https://goreportcard.com/badge/github.com/arthurkiller/wrk-go)](https://goreportcard.com/report/github.com/arthurkiller/wrk-go)
 
 ## What is wrk
 wrk is a https testing tool util written in c. It is really easy to use but has limitted support with
