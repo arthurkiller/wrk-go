@@ -124,7 +124,7 @@ func main() {
 
 	var errCode error = errors.New("!")
 
-	perf.Registe(func() (err error) {
+	perf.Regist(func() (err error) {
 		resp, err := client.Do(req)
 		if resp.StatusCode > 400 {
 			return errCode
